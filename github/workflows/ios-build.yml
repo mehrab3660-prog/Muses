@@ -1,0 +1,43 @@
+name: Build unsigned IPA for SibStars
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "ios-build/*"
+
+jobs:
+  build-ipa:
+    runs-on: macos-15
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Build app (unsigned, for re-signing)
+        run: |
+          xcodebuild -project DiscountApp.xcodeproj \
+            -scheme DiscountApp \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
+
+      - name: Package IPA
+        run: |
+          mkdir -p Payload
+          cp -r "DerivedData/Build/Products/Release-iphoneos/DiscountApp.app" Payload/
+          zip -r DiscountApp-unsigned.ipa Payload
+          ls -lh DiscountApp-unsigned.ipa
+          unzip -l DiscountApp-unsigned.ipa | head -30
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DiscountApp-unsigned-ipa
+          path: DiscountApp-unsigned.ipa
+          if-no-files-found: error
