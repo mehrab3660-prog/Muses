@@ -63,9 +63,14 @@ struct Deal: Identifiable, Hashable, Codable {
     let code: String?
     let expiryDays: Int
     let url: String
+    let imageURL: String? = nil
     let isFeatured: Bool
 
     var storeName: String { Store.name(for: storeId) }
+
+    /// The link the card opens: a product search URL, never just a homepage.
+    var productURL: URL? { URL(string: url) }
+    var productImageURL: URL? { imageURL.flatMap { URL(string: $0) } }
 
     var discountPercent: Int {
         guard oldPrice > 0, newPrice < oldPrice else { return 0 }
