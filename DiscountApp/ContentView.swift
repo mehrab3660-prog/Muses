@@ -19,14 +19,53 @@ func timeUntilMidnight() -> String {
     return String(format: "%02d:%02d:%02d", h, m, s)
 }
 
+// MARK: - Product image (photo, or large category icon as fallback)
+struct ProductImageView: View {
+    let deal: Deal
+    var body: some View {
+        ZStack {
+            LinearGradient(colors: [.purple.opacity(0.55), .blue.opacity(0.55), .green.opacity(0.45)],
+                           startPoint: .topLeading, endPoint: .bottomTrailing)
+            if let url = deal.productImageURL {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image.resizable().scaledToFill()
+                    case .failure:
+                        Image(systemName: deal.category.icon).font(.system(size: 64)).foregroundColor(.white.opacity(0.9))
+                    case .empty:
+                        ProgressView().tint(.white)
+                    @unknown default:
+                        Image(systemName: deal.category.icon).font(.system(size: 64)).foregroundColor(.white.opacity(0.9))
+                    }
+                }
+            } else {
+                Image(systemName: deal.category.icon).font(.system(size: 64)).foregroundColor(.white.opacity(0.9))
+            }
+            VStack {
+                Spacer()
+                HStack {
+                    Text(deal.storeName).font(.caption.bold()).padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(Color.black.opacity(0.55)).foregroundColor(.white).clipShape(Capsule())
+                    Spacer()
+                }.padding(8)
+            }
+        }
+        .frame(maxWidth: .infinity).frame(height: 170)
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+    }
+}
+
 // MARK: - Deal card
 struct DealCardView: View {
     @EnvironmentObject var store: DealStore
+    @Environment(\.openURL) private var openURL
     let deal: Deal
     @State private var copied = false
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 10) {
+            ProductImageView(deal: deal)
             HStack {
                 Text("\(deal.discountPercent)٪ تخفیف")
                     .font(.caption.bold())
@@ -71,7 +110,7 @@ struct DealCardView: View {
                 }
                 Spacer()
                 if let url = URL(string: deal.url) {
-                    Link("مشاهده تخفیف", destination: url)
+                    Link("مشاهده محصول", destination: url)
                         .font(.subheadline.bold())
                         .padding(.horizontal, 14).padding(.vertical, 8)
                         .background(Color.blue)
@@ -84,6 +123,10 @@ struct DealCardView: View {
         .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 22))
         .shadow(color: .black.opacity(0.08), radius: 8, y: 4)
+        .contentShape(RoundedRectangle(cornerRadius: 22))
+        .onTapGesture {
+            if let url = deal.productURL { openURL(url) }
+        }
     }
 }
 
@@ -93,6 +136,7 @@ struct HomeView: View {
     @State private var countdown = timeUntilMidnight()
     @State private var showAddDeal = false
     @State private var showWatch = false
+    @State private var refreshMessage = false
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
@@ -112,6 +156,32 @@ struct HomeView: View {
                         TextField("جستجو: آیفون، یخچال، کفش…", text: $store.searchText)
                             .textFieldStyle(.roundedBorder)
                             .environment(\.layoutDirection, .rightToLeft)
+
+                        // Refresh status
+                        HStack(spacing: 8) {
+                            if store.isRefreshing {
+                                ProgressView().scaleEffect(0.8)
+                                Text("در حال به‌روزرسانی…").font(.caption).foregroundColor(.secondary)
+                            } else if refreshMessage || store.justRefreshed {
+                                Label("به‌روز شد ✓", systemImage: "checkmark.circle.fill")
+                                    .font(.caption.bold()).foregroundColor(.green)
+                            }
+                            Spacer()
+                            Text(store.refreshText).font(.caption).foregroundColor(.secondary)
+                            Button {
+                                Task {
+                                    await store.refresh()
+                                    refreshMessage = true
+                                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                                    refreshMessage = false
+                                }
+                            } label: {
+                                Label("به‌روزرسانی", systemImage: "arrow.clockwise")
+                                    .font(.caption.bold())
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(store.isRefreshing)
+                        }
 
                         // Hero — Deal of the day
                         if let hero = store.dealOfTheDay {
@@ -199,6 +269,7 @@ struct HomeView: View {
                     }
                     .padding()
                 }
+                .refreshable { await store.refresh() }
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -207,6 +278,19 @@ struct HomeView: View {
                 }
                 ToolbarItem(placement: .topBarLeading) {
                     Button { showAddDeal = true } label: { Label("افزودن تخفیف", systemImage: "plus") }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        Task {
+                            await store.refresh()
+                            refreshMessage = true
+                            try? await Task.sleep(nanoseconds: 2_000_000_000)
+                            refreshMessage = false
+                        }
+                    } label: {
+                        Label("به‌روزرسانی", systemImage: "arrow.clockwise")
+                    }
+                    .disabled(store.isRefreshing)
                 }
             }
             .onReceive(timer) { _ in countdown = timeUntilMidnight() }
